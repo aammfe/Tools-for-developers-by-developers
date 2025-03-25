@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSON Formatter</title>
+    <style>
+        body {
+            display: flex;
+            height: 100vh;
+            margin: 0;
+            font-family: Consolas, "Courier New", monospace;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+        textarea, pre {
+            width: 50%;
+            height: 100%;
+            padding: 10px;
+            box-sizing: border-box;
+            border: none;
+            overflow: auto;
+            font-size: 14px;
+        }
+        textarea {
+            background: #252526;
+            color: #d4d4d4;
+            outline: none;
+        }
+        pre {
+            background: #1e1e1e;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            border-left: 2px solid #007acc;
+        }
+        .error-line {
+            background-color: #5a1d1d;
+            position: relative;
+        }
+        .error-marker {
+            position: absolute;
+            left: 0;
+            background-color: #ff0000;
+            width: 3px;
+            height: 100%;
+        }
+        .copy-button {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 5px;
+            background: #007acc;
+            border: none;
+            color: white;
+            cursor: pointer;
+            z-index: 10;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .copy-button:hover {
+            background: #005f99;
+        }
+        .copy-icon {
+            width: 16px;
+            height: 16px;
+            fill: currentColor;
+        }
+        .node-copy {
+            display: inline-block;
+            margin-left: 5px;
+            cursor: pointer;
+            color: #569cd6;
+            font-size: 12px;
+            vertical-align: middle;
+        }
+        .node-copy:hover {
+            color: #4ec9b0;
+        }
+        .collapsible {
+            cursor: pointer;
+        }
+        .collapsible::before {
+            content: "−";
+            display: inline-block;
+            width: 15px;
+            color: #569cd6;
+        }
+        .collapsible.collapsed::before {
+            content: "+";
+        }
+        .highlighted {
+            background-color: #264f78;
+        }
+        .hidden {
+            display: none;
+        }
+        .json-container {
+            position: relative;
+        }
+        .json-line {
+            display: block;
+        }
+        .json-block {
+            margin-left: 15px;
+            border-left: 1px dotted #555;
+            padding-left: 10px;
+        }
+        .key-value {
+            display: inline;
+        }
+        .key {
+            color: #9cdcfe;
+        }
+        .string {
+            color: #ce9178;
+        }
+        .number {
+            color: #b5cea8;
+        }
+        .boolean {
+            color: #569cd6;
+        }
+        .null {
+            color: #569cd6;
+        }
+    </style>
+</head>
+<body>
+    <textarea id="jsonInput" placeholder="Enter JSON here..." spellcheck="false"></textarea>
+    <div class="json-container">
+        <pre id="jsonOutput" spellcheck="false"></pre>
+    </div>
+    <button class="copy-button" id="copyButton" title="Copy to clipboard">
+        <svg class="copy-icon" viewBox="0 0 24 24">
+            <path d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"/>
+        </svg>
+    </button>
+    
+    <script>
+        function formatJSON(json) {
+            try {
+                const parsed = JSON.parse(json);
+                return {
+                    formatted: JSON.stringify(parsed, null, 4),
+                    isValid: true,
+                    parsed: parsed
+                };
+            } catch (e) {
+                return {
+                    formatted: json,
+                    isValid: false
+                };
+            }
+        }
+
+        function highlightErrors(formatted, isValid) {
+            if (!isValid) {
+                const lines = formatted.split('\n');
+                let output = '';
+                for (let i = 0; i < lines.length; i++) {
+                    output += `<div class="error-line"><span class="error-marker"></span>${lines[i]}</div>`;
+                }
+                return output;
+            }
+            return formatted;
+        }
+
+        function formatValue(value, indent = 0) {
+            if (value === null) return `<span class="null">null</span>`;
+            if (typeof value === 'boolean') return `<span class="boolean">${value}</span>`;
+            if (typeof value === 'number') return `<span class="number">${value}</span>`;
+            if (typeof value === 'string') return `<span class="string">"${value}"</span>`;
+            if (Array.isArray(value)) return formatArray(value, indent);
+            if (typeof value === 'object') return formatObject(value, indent);
+            return value;
+        }
+
+        function formatArray(arr, indent) {
+            if (arr.length === 0) return `[]`;
+            
+            // Check if array can be displayed inline
+            const simpleArray = arr.every(item => 
+                typeof item !== 'object' || item === null
+            );
+            const arrayString = `[${arr.map(item => formatValue(item, indent)).join(', ')}]`;
+            
+            if (simpleArray && arrayString.length < 80 - indent) {
+                return arrayString;
+            }
+            
+            let html = `[<span class="collapsible"></span><span class="node-copy" title="Copy this node">📋</span><div class="json-block">`;
+            for (let i = 0; i < arr.length; i++) {
+                html += `<div class="json-line">${formatValue(arr[i], indent + 1)}${i < arr.length - 1 ? ',' : ''}</div>`;
+            }
+            html += `</div><div class="json-line">]</div>`;
+            return html;
+        }
+
+        function formatObject(obj, indent = 0) {
+            const keys = Object.keys(obj);
+            if (keys.length === 0) return `{}`;
+            
+            // Check if object can be displayed inline
+            const simpleObject = keys.every(key => 
+                typeof obj[key] !== 'object' || obj[key] === null
+            );
+            const pairs = keys.map(key => 
+                `<span class="key">"${key}"</span>: ${formatValue(obj[key], indent)}`
+            );
+            const objectString = `{ ${pairs.join(', ')} }`;
+            
+            if (simpleObject && objectString.length < 80 - indent) {
+                return objectString;
+            }
+            
+            let html = `{<span class="collapsible"></span><span class="node-copy" title="Copy this node">📋</span><div class="json-block">`;
+            for (let i = 0; i < keys.length; i++) {
+                const key = keys[i];
+                html += `<div class="json-line"><span class="key">"${key}"</span>: ${formatValue(obj[key], indent + 1)}${i < keys.length - 1 ? ',' : ''}</div>`;
+            }
+            html += `</div><div class="json-line">}</div>`;
+            return html;
+        }
+
+        function createCollapsibleJSON(parsed) {
+            return formatValue(parsed);
+        }
+
+        function updateOutput() {
+            const jsonText = document.getElementById('jsonInput').value;
+            const { formatted, isValid, parsed } = formatJSON(jsonText);
+            
+            if (!isValid) {
+                document.getElementById('jsonOutput').innerHTML = highlightErrors(formatted, isValid);
+            } else {
+                const html = createCollapsibleJSON(parsed);
+                document.getElementById('jsonOutput').innerHTML = html;
+                
+                // Add event listeners for collapsible elements
+                const collapsibles = document.querySelectorAll('.collapsible');
+                collapsibles.forEach(el => {
+                    el.addEventListener('click', function() {
+                        this.classList.toggle('collapsed');
+                        const block = this.nextElementSibling.nextElementSibling;
+                        if (block && block.classList.contains('json-block')) {
+                            block.classList.toggle('hidden');
+                            const nextLine = block.nextElementSibling;
+                            if (nextLine && nextLine.classList.contains('json-line')) {
+                                nextLine.classList.toggle('hidden');
+                            }
+                        }
+                    });
+                });
+                
+                // Add event listeners for copy buttons
+                const copyButtons = document.querySelectorAll('.node-copy');
+                copyButtons.forEach(btn => {
+                    btn.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        const parent = this.parentNode;
+                        let textToCopy = '';
+                        
+                        if (parent.textContent.startsWith('{') || parent.textContent.startsWith('[')) {
+                            const block = this.nextElementSibling;
+                            if (block && block.classList.contains('json-block')) {
+                                textToCopy = parent.textContent.trim().charAt(0);
+                                textToCopy += '\n' + block.textContent;
+                                textToCopy += '\n' + (parent.textContent.trim().startsWith('{') ? '}' : ']');
+                            }
+                        } else {
+                            textToCopy = parent.textContent;
+                        }
+                        
+                        navigator.clipboard.writeText(textToCopy).then(() => {
+                            // Visual feedback
+                            this.textContent = '✅';
+                            setTimeout(() => {
+                                this.textContent = '📋';
+                            }, 1000);
+                            
+                            // Highlight the node
+                            parent.classList.add('highlighted');
+                            setTimeout(() => {
+                                parent.classList.remove('highlighted');
+                            }, 1000);
+                        });
+                    });
+                });
+            }
+        }
+
+        document.getElementById('jsonInput').addEventListener('input', updateOutput);
+        
+        document.getElementById('copyButton').addEventListener('click', function() {
+            const outputText = document.getElementById('jsonOutput').textContent;
+            if (outputText) {
+                navigator.clipboard.writeText(outputText)
+                    .then(() => {
+                        const copyBtn = document.getElementById('copyButton');
+                        copyBtn.innerHTML = '<svg class="copy-icon" viewBox="0 0 24 24"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg>';
+                        setTimeout(() => {
+                            copyBtn.innerHTML = '<svg class="copy-icon" viewBox="0 0 24 24"><path d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"/></svg>';
+                        }, 2000);
+                    });
+            }
+        });
+
+        // Initialize with example JSON
+        document.getElementById('jsonInput').value = JSON.stringify({
+            "name": "John Doe",
+            "age": 30,
+            "isActive": true,
+            "address": {
+                "street": "123 Main St",
+                "city": "New York",
+                "zip": "10001"
+            },
+            "hobbies": ["reading", "swimming", "coding"],
+            "projects": [
+                {
+                    "name": "Website Redesign",
+                    "status": "completed"
+                },
+                {
+                    "name": "Mobile App Development",
+                    "status": "in progress"
+                }
+            ]
+        }, null, 2);
+        updateOutput();
+    </script>
+</body>
+</html>

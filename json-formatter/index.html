@@ -13,6 +13,9 @@
             background: #1e1e1e;
             color: #d4d4d4;
         }
+        #jsonOutput {
+            width: 100%;
+        }
         textarea, pre {
             width: 50%;
             height: 100%;
@@ -155,28 +158,39 @@
             } catch (e) {
                 return {
                     formatted: json,
-                    isValid: false
+                    isValid: false,
+                    error: e.message
                 };
             }
         }
 
-        function highlightErrors(formatted, isValid) {
+        function highlightErrors(formatted, isValid, errorMessage) {
             if (!isValid) {
                 const lines = formatted.split('\n');
                 let output = '';
                 for (let i = 0; i < lines.length; i++) {
                     output += `<div class="error-line"><span class="error-marker"></span>${lines[i]}</div>`;
                 }
+                output += `<div class="error-line"><span class="error-marker"></span>Error: ${errorMessage}</div>`;
                 return output;
             }
             return formatted;
+        }
+
+        function escapeHtml(unsafe) {
+            return unsafe
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
         }
 
         function formatValue(value, indent = 0) {
             if (value === null) return `<span class="null">null</span>`;
             if (typeof value === 'boolean') return `<span class="boolean">${value}</span>`;
             if (typeof value === 'number') return `<span class="number">${value}</span>`;
-            if (typeof value === 'string') return `<span class="string">"${value}"</span>`;
+            if (typeof value === 'string') return `<span class="string">"${escapeHtml(value)}"</span>`;
             if (Array.isArray(value)) return formatArray(value, indent);
             if (typeof value === 'object') return formatObject(value, indent);
             return value;
@@ -194,7 +208,7 @@
                 return arrayString;
             }
             
-            let html = `[<span class="collapsible"></span><span class="node-copy" title="Copy this node">📋</span><div class="json-block">`;
+            let html = `[<span class="collapsible"></span><span class="node-copy" title="Copy this node" data-json="${escapeHtml(JSON.stringify(arr))}">📋</span><div class="json-block">`;
             for (let i = 0; i < arr.length; i++) {
                 html += `<div class="json-line">${formatValue(arr[i], indent + 1)}${i < arr.length - 1 ? ',' : ''}</div>`;
             }
@@ -218,10 +232,12 @@
                 return objectString;
             }
             
-            let html = `{<span class="collapsible"></span><span class="node-copy" title="Copy this node">📋</span><div class="json-block">`;
+            let html = `{<span class="collapsible"></span><span class="node-copy" title="Copy this node" data-json="${escapeHtml(JSON.stringify(obj))}">📋</span><div class="json-block">`;
             for (let i = 0; i < keys.length; i++) {
                 const key = keys[i];
-                html += `<div class="json-line"><span class="key">"${key}"</span>: ${formatValue(obj[key], indent + 1)}${i < keys.length - 1 ? ',' : ''}</div>`;
+                const value = obj[key];
+                const valueHtml = formatValue(value, indent + 1);
+                html += `<div class="json-line"><span class="key">"${escapeHtml(key)}"</span>: ${valueHtml}${i < keys.length - 1 ? ',' : ''}</div>`;
             }
             html += `</div><div class="json-line">}</div>`;
             return html;
@@ -233,10 +249,10 @@
 
         function updateOutput() {
             const jsonText = document.getElementById('jsonInput').value;
-            const { formatted, isValid, parsed } = formatJSON(jsonText);
+            const { formatted, isValid, parsed, error } = formatJSON(jsonText);
             
             if (!isValid) {
-                document.getElementById('jsonOutput').innerHTML = highlightErrors(formatted, isValid);
+                document.getElementById('jsonOutput').innerHTML = highlightErrors(formatted, isValid, error);
             } else {
                 const html = createCollapsibleJSON(parsed);
                 document.getElementById('jsonOutput').innerHTML = html;
@@ -262,41 +278,38 @@
                 copyButtons.forEach(btn => {
                     btn.addEventListener('click', async function(e) {
                         e.stopPropagation();
-                        const parent = this.parentNode;
                         
-                        // Hide UI elements
-                        const uiElements = parent.querySelectorAll('.node-copy, .collapsible');
-                        uiElements.forEach(el => el.classList.add('hidden'));
+                        // Get the JSON data from the data attribute
+                        const jsonData = this.getAttribute('data-json');
+                        if (!jsonData) return;
                         
                         try {
-                            // Get clean text content
-                            let textToCopy = '';
-                            if (parent.textContent.startsWith('{') || parent.textContent.startsWith('[')) {
-                                const block = this.nextElementSibling;
-                                if (block && block.classList.contains('json-block')) {
-                                    textToCopy = parent.textContent.trim().charAt(0) + '\n' + 
-                                                block.textContent + '\n' + 
-                                                (parent.textContent.trim().startsWith('{') ? '}' : ']');
-                                }
+                            // Parse the JSON to handle formatting
+                            const parsedData = JSON.parse(jsonData);
+                            let textToCopy;
+                            
+                            // For objects and arrays, stringify with pretty print
+                            if (typeof parsedData === 'object' && parsedData !== null) {
+                                textToCopy = JSON.stringify(parsedData, null, 2);
                             } else {
-                                textToCopy = parent.textContent;
+                                // For primitive values, just use the value directly
+                                textToCopy = String(parsedData);
                             }
                             
                             // Copy to clipboard
-                            await navigator.clipboard.writeText(textToCopy.trim());
+                            await navigator.clipboard.writeText(textToCopy);
                             
                             // Visual feedback
+                            const originalText = this.textContent;
                             this.textContent = '✅';
-                            parent.classList.add('highlighted');
-                        } finally {
-                            // Restore UI elements
-                            uiElements.forEach(el => el.classList.remove('hidden'));
+                            this.parentNode.classList.add('highlighted');
+                            
                             setTimeout(() => {
-                                if (this.textContent === '✅') {
-                                    this.textContent = '📋';
-                                }
-                                parent.classList.remove('highlighted');
+                                this.textContent = originalText;
+                                this.parentNode.classList.remove('highlighted');
                             }, 1000);
+                        } catch (err) {
+                            console.error('Failed to copy:', err);
                         }
                     });
                 });

@@ -26,6 +26,7 @@
             background: #252526;
             color: #d4d4d4;
             outline: none;
+            resize: none;
         }
         pre {
             background: #1e1e1e;
@@ -92,12 +93,19 @@
         }
         .highlighted {
             background-color: #264f78;
+            animation: highlight-fade 1s ease-out;
+        }
+        @keyframes highlight-fade {
+            0% { background-color: #264f78; }
+            100% { background-color: transparent; }
         }
         .hidden {
-            display: none;
+            display: none !important;
         }
         .json-container {
             position: relative;
+            width: 50%;
+            height: 100%;
         }
         .json-line {
             display: block;
@@ -106,9 +114,6 @@
             margin-left: 15px;
             border-left: 1px dotted #555;
             padding-left: 10px;
-        }
-        .key-value {
-            display: inline;
         }
         .key {
             color: #9cdcfe;
@@ -131,12 +136,12 @@
     <textarea id="jsonInput" placeholder="Enter JSON here..." spellcheck="false"></textarea>
     <div class="json-container">
         <pre id="jsonOutput" spellcheck="false"></pre>
+        <button class="copy-button" id="copyButton" title="Copy to clipboard">
+            <svg class="copy-icon" viewBox="0 0 24 24">
+                <path d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"/>
+            </svg>
+        </button>
     </div>
-    <button class="copy-button" id="copyButton" title="Copy to clipboard">
-        <svg class="copy-icon" viewBox="0 0 24 24">
-            <path d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"/>
-        </svg>
-    </button>
     
     <script>
         function formatJSON(json) {
@@ -180,7 +185,6 @@
         function formatArray(arr, indent) {
             if (arr.length === 0) return `[]`;
             
-            // Check if array can be displayed inline
             const simpleArray = arr.every(item => 
                 typeof item !== 'object' || item === null
             );
@@ -202,7 +206,6 @@
             const keys = Object.keys(obj);
             if (keys.length === 0) return `{}`;
             
-            // Check if object can be displayed inline
             const simpleObject = keys.every(key => 
                 typeof obj[key] !== 'object' || obj[key] === null
             );
@@ -238,7 +241,7 @@
                 const html = createCollapsibleJSON(parsed);
                 document.getElementById('jsonOutput').innerHTML = html;
                 
-                // Add event listeners for collapsible elements
+                // Add collapsible functionality
                 const collapsibles = document.querySelectorAll('.collapsible');
                 collapsibles.forEach(el => {
                     el.addEventListener('click', function() {
@@ -254,38 +257,47 @@
                     });
                 });
                 
-                // Add event listeners for copy buttons
+                // Add copy functionality
                 const copyButtons = document.querySelectorAll('.node-copy');
                 copyButtons.forEach(btn => {
-                    btn.addEventListener('click', function(e) {
+                    btn.addEventListener('click', async function(e) {
                         e.stopPropagation();
                         const parent = this.parentNode;
-                        let textToCopy = '';
                         
-                        if (parent.textContent.startsWith('{') || parent.textContent.startsWith('[')) {
-                            const block = this.nextElementSibling;
-                            if (block && block.classList.contains('json-block')) {
-                                textToCopy = parent.textContent.trim().charAt(0);
-                                textToCopy += '\n' + block.textContent;
-                                textToCopy += '\n' + (parent.textContent.trim().startsWith('{') ? '}' : ']');
+                        // Hide UI elements
+                        const uiElements = parent.querySelectorAll('.node-copy, .collapsible');
+                        uiElements.forEach(el => el.classList.add('hidden'));
+                        
+                        try {
+                            // Get clean text content
+                            let textToCopy = '';
+                            if (parent.textContent.startsWith('{') || parent.textContent.startsWith('[')) {
+                                const block = this.nextElementSibling;
+                                if (block && block.classList.contains('json-block')) {
+                                    textToCopy = parent.textContent.trim().charAt(0) + '\n' + 
+                                                block.textContent + '\n' + 
+                                                (parent.textContent.trim().startsWith('{') ? '}' : ']');
+                                }
+                            } else {
+                                textToCopy = parent.textContent;
                             }
-                        } else {
-                            textToCopy = parent.textContent;
-                        }
-                        
-                        navigator.clipboard.writeText(textToCopy).then(() => {
+                            
+                            // Copy to clipboard
+                            await navigator.clipboard.writeText(textToCopy.trim());
+                            
                             // Visual feedback
                             this.textContent = '✅';
-                            setTimeout(() => {
-                                this.textContent = '📋';
-                            }, 1000);
-                            
-                            // Highlight the node
                             parent.classList.add('highlighted');
+                        } finally {
+                            // Restore UI elements
+                            uiElements.forEach(el => el.classList.remove('hidden'));
                             setTimeout(() => {
+                                if (this.textContent === '✅') {
+                                    this.textContent = '📋';
+                                }
                                 parent.classList.remove('highlighted');
                             }, 1000);
-                        });
+                        }
                     });
                 });
             }
@@ -293,17 +305,19 @@
 
         document.getElementById('jsonInput').addEventListener('input', updateOutput);
         
-        document.getElementById('copyButton').addEventListener('click', function() {
+        document.getElementById('copyButton').addEventListener('click', async function() {
             const outputText = document.getElementById('jsonOutput').textContent;
             if (outputText) {
-                navigator.clipboard.writeText(outputText)
-                    .then(() => {
-                        const copyBtn = document.getElementById('copyButton');
-                        copyBtn.innerHTML = '<svg class="copy-icon" viewBox="0 0 24 24"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg>';
-                        setTimeout(() => {
-                            copyBtn.innerHTML = '<svg class="copy-icon" viewBox="0 0 24 24"><path d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"/></svg>';
-                        }, 2000);
-                    });
+                try {
+                    await navigator.clipboard.writeText(outputText);
+                    const copyBtn = document.getElementById('copyButton');
+                    copyBtn.innerHTML = '<svg class="copy-icon" viewBox="0 0 24 24"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg>';
+                    setTimeout(() => {
+                        copyBtn.innerHTML = '<svg class="copy-icon" viewBox="0 0 24 24"><path d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"/></svg>';
+                    }, 2000);
+                } catch (err) {
+                    console.error('Failed to copy:', err);
+                }
             }
         });
 
@@ -327,7 +341,8 @@
                     "name": "Mobile App Development",
                     "status": "in progress"
                 }
-            ]
+            ],
+            "specialChars": "This text contains 📋 and other special characters"
         }, null, 2);
         updateOutput();
     </script>

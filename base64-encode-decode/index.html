@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>URL Encoder/Decoder</title>
+    <title>Base64 Encoder/Decoder</title>
     <style>
         body {
             display: flex;
@@ -161,13 +161,13 @@
     <div class="content-area">
         <div class="input-container">
             <button class="copy-button" onclick="copyToClipboard('inputText', this)">📋</button>
-            <div class="input-prompt text-input-title">Enter Text to Encode into Url</div>
+            <div class="input-prompt text-input-title">Enter to Encode into base64</div>
             <textarea id="inputText" oninput="encodeFromInput(this.value)"></textarea>
         </div>
 
         <div class="output-container">
             <button class="copy-button" onclick="copyToClipboard('outputText', this)">📋</button>
-            <div class="output-prompt text-input-title">Enter Url/Params to Decode</div>
+            <div class="output-prompt text-input-title">Enter base64 to Decode</div>
             <textarea id="outputText" oninput="decodeFromInput(this.value)"></textarea>
         </div>
     </div>
@@ -176,18 +176,18 @@
         function encodeFromInput(text) {
             const outputText = document.getElementById("outputText");
             try {
-                outputText.value = encodeURIComponent(text);
+                outputText.value = btoa(unescape(encodeURIComponent(text)));
             } catch (e) {
-                outputText.value = "Error: Invalid URL component";
+                outputText.value = "Error: Invalid input for Base64 encoding";
             }
         }
 
         function decodeFromInput(text) {
             const inputText = document.getElementById("inputText");
             try {
-                inputText.value = decodeURIComponent(text);
+                inputText.value = decodeURIComponent(escape(atob(text)));
             } catch (e) {
-                inputText.value = "Error: Invalid URL";
+                inputText.value = "Error: Invalid Base64 string";
             }
         }
 
@@ -222,8 +222,8 @@
                     text: 'Format Json',
                 },
                 {
-                    link: '../base64-encode-decode/index.html',
-                    text: 'Base64 Encoder/Decoder',
+                    link: '../url-encode-decode/index.html',
+                    text: 'Url Encoder/Decoder',
                 },
                 {
                     link: '../json-escape-unescape/index.html',
@@ -238,7 +238,7 @@
                     text: 'Show Invisible Characters',
                 }
             ]
-    
+
             links.forEach(item => {
                 const a = document.createElement('a');
                 a.href = item.link;

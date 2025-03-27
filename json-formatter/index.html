@@ -37,39 +37,32 @@
             word-wrap: break-word;
             border-left: 2px solid #007acc;
         }
-        .error-line {
-            background-color: #5a1d1d;
+        .error-highlight {
             position: relative;
+            background-color: rgba(255, 0, 0, 0.2);
+            border-bottom: 2px solid #ff6b6b;
+            border-radius: 2px;
         }
-        .error-marker {
+        .error-line-number {
             position: absolute;
-            left: 0;
-            background-color: #ff0000;
-            width: 3px;
-            height: 100%;
+            left: -40px;
+            color: #ff6b6b;
+            font-weight: bold;
+            background: rgba(90, 29, 29, 0.3);
+            padding: 0 5px;
+            border-radius: 3px;
         }
-        .copy-button {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            padding: 5px;
-            background: #007acc;
-            border: none;
-            color: white;
-            cursor: pointer;
-            z-index: 10;
+        .error-details {
+            background-color: rgba(90, 29, 29, 0.5);
+            padding: 8px 12px;
+            margin: 5px 0 10px 20px;
             border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            border-left: 3px solid #ff6b6b;
         }
-        .copy-button:hover {
-            background: #005f99;
-        }
-        .copy-icon {
-            width: 16px;
-            height: 16px;
-            fill: currentColor;
+        .error-message {
+            color: #ff9d9d;
+            font-style: normal;
+            padding: 2px 0;
         }
         .node-copy {
             display: inline-block;
@@ -112,6 +105,7 @@
         }
         .json-line {
             display: block;
+            position: relative;
         }
         .json-block {
             margin-left: 15px;
@@ -133,17 +127,27 @@
         .null {
             color: #569cd6;
         }
+        .line-numbers {
+            position: absolute;
+            left: -40px;
+            width: 30px;
+            text-align: right;
+            color: #858585;
+            user-select: none;
+        }
+        .syntax-error-marker {
+            position: absolute;
+            background-color: #ff6b6b;
+            width: 2px;
+            height: 16px;
+            transform: translateX(-1px);
+        }
     </style>
 </head>
 <body>
     <textarea id="jsonInput" placeholder="Enter JSON here..." spellcheck="false"></textarea>
     <div class="json-container">
         <pre id="jsonOutput" spellcheck="false"></pre>
-        <button class="copy-button" id="copyButton" title="Copy to clipboard">
-            <svg class="copy-icon" viewBox="0 0 24 24">
-                <path d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"/>
-            </svg>
-        </button>
     </div>
     
     <script>
@@ -156,25 +160,130 @@
                     parsed: parsed
                 };
             } catch (e) {
+                let errors = [];
+                let message = e.message;
+                
+                if (message.includes('\n')) {
+                    errors = message.split('\n')
+                        .map(err => err.trim())
+                        .filter(err => err && !err.includes('at JSON.parse'));
+                } else {
+                    errors = [message];
+                }
+                
+                let positions = [];
+                const positionMatches = message.match(/position\s+(\d+)/gi);
+                if (positionMatches) {
+                    positions = positionMatches.map(match => {
+                        const numMatch = match.match(/\d+/);
+                        return numMatch ? parseInt(numMatch[0]) : null;
+                    }).filter(pos => pos !== null);
+                }
+                
+                if (positions.length === 0 && e.pos !== undefined) {
+                    positions = [e.pos];
+                }
+                
                 return {
                     formatted: json,
                     isValid: false,
-                    error: e.message
+                    errors: errors,
+                    positions: positions.length > 0 ? positions : null,
+                    error: e
                 };
             }
         }
 
-        function highlightErrors(formatted, isValid, errorMessage) {
-            if (!isValid) {
-                const lines = formatted.split('\n');
-                let output = '';
-                for (let i = 0; i < lines.length; i++) {
-                    output += `<div class="error-line"><span class="error-marker"></span>${lines[i]}</div>`;
-                }
-                output += `<div class="error-line"><span class="error-marker"></span>Error: ${errorMessage}</div>`;
-                return output;
+        function highlightErrors(text, errors, positions, errorObj) {
+            if (!errors || errors.length === 0) return escapeHtml(text);
+            
+            const lines = text.split('\n');
+            let output = '';
+            let errorLines = new Map();
+            
+            let lineStarts = [0];
+            for (let i = 0; i < lines.length; i++) {
+                lineStarts.push(lineStarts[i] + lines[i].length + 1);
             }
-            return formatted;
+            
+            if (positions && positions.length > 0) {
+                positions.forEach((pos, idx) => {
+                    let lineIdx = 0;
+                    while (lineIdx < lineStarts.length - 1 && pos >= lineStarts[lineIdx + 1]) {
+                        lineIdx++;
+                    }
+                    
+                    if (lineIdx < lines.length) {
+                        if (!errorLines.has(lineIdx)) {
+                            errorLines.set(lineIdx, []);
+                        }
+                        errorLines.get(lineIdx).push({
+                            position: pos - lineStarts[lineIdx],
+                            message: errors[idx] || errors[0]
+                        });
+                    }
+                });
+            } else {
+                for (let i = 0; i < lines.length; i++) {
+                    errorLines.set(i, errors.map(msg => ({ position: null, message: msg })));
+                }
+            }
+            
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                const lineErrors = errorLines.get(i);
+                
+                output += `<div class="json-line">`;
+                output += `<span class="${lineErrors ? 'error-line-number' : 'line-numbers'}">${i + 1}</span>`;
+                
+                if (lineErrors && lineErrors.length > 0) {
+                    if (lineErrors.some(e => e.position !== null)) {
+                        lineErrors.sort((a, b) => (a.position || 0) - (b.position || 0));
+                        
+                        let lastPos = 0;
+                        for (const error of lineErrors) {
+                            const pos = error.position !== null ? error.position : 0;
+                            
+                            if (pos > lastPos) {
+                                output += escapeHtml(line.substring(lastPos, pos));
+                            }
+                            
+                            const errorLength = Math.max(1, Math.min(5, line.length - pos));
+                            output += `<span class="error-highlight" title="${escapeHtml(error.message)}">`;
+                            output += escapeHtml(line.substring(pos, pos + errorLength));
+                            output += `</span>`;
+                            
+                            lastPos = pos + errorLength;
+                        }
+                        
+                        if (lastPos < line.length) {
+                            output += escapeHtml(line.substring(lastPos));
+                        }
+                    } else {
+                        output += `<span class="error-highlight" title="${escapeHtml(lineErrors.map(e => e.message).join('; '))}">`;
+                        output += escapeHtml(line);
+                        output += `</span>`;
+                    }
+                    
+                    output += `<div class="error-details">`;
+                    const uniqueMessages = [...new Set(lineErrors.map(e => e.message))];
+                    uniqueMessages.forEach(msg => {
+                        output += `<div class="error-message">${escapeHtml(msg)}</div>`;
+                    });
+                    
+                    if (errorObj instanceof SyntaxError) {
+                        output += `<div class="error-message">Syntax error at line ${i + 1}</div>`;
+                    }
+                    
+                    output += `</div>`;
+                } else {
+                    output += escapeHtml(line);
+                }
+                
+                output += `</div>`;
+            }
+            
+            return output;
         }
 
         function escapeHtml(unsafe) {
@@ -249,15 +358,14 @@
 
         function updateOutput() {
             const jsonText = document.getElementById('jsonInput').value;
-            const { formatted, isValid, parsed, error } = formatJSON(jsonText);
+            const { formatted, isValid, parsed, errors, positions, error } = formatJSON(jsonText);
             
             if (!isValid) {
-                document.getElementById('jsonOutput').innerHTML = highlightErrors(formatted, isValid, error);
+                document.getElementById('jsonOutput').innerHTML = highlightErrors(formatted, errors, positions, error);
             } else {
                 const html = createCollapsibleJSON(parsed);
                 document.getElementById('jsonOutput').innerHTML = html;
                 
-                // Add collapsible functionality
                 const collapsibles = document.querySelectorAll('.collapsible');
                 collapsibles.forEach(el => {
                     el.addEventListener('click', function() {
@@ -273,33 +381,26 @@
                     });
                 });
                 
-                // Add copy functionality
                 const copyButtons = document.querySelectorAll('.node-copy');
                 copyButtons.forEach(btn => {
                     btn.addEventListener('click', async function(e) {
                         e.stopPropagation();
                         
-                        // Get the JSON data from the data attribute
                         const jsonData = this.getAttribute('data-json');
                         if (!jsonData) return;
                         
                         try {
-                            // Parse the JSON to handle formatting
                             const parsedData = JSON.parse(jsonData);
                             let textToCopy;
                             
-                            // For objects and arrays, stringify with pretty print
                             if (typeof parsedData === 'object' && parsedData !== null) {
                                 textToCopy = JSON.stringify(parsedData, null, 2);
                             } else {
-                                // For primitive values, just use the value directly
                                 textToCopy = String(parsedData);
                             }
                             
-                            // Copy to clipboard
                             await navigator.clipboard.writeText(textToCopy);
                             
-                            // Visual feedback
                             const originalText = this.textContent;
                             this.textContent = '✅';
                             this.parentNode.classList.add('highlighted');
@@ -317,24 +418,7 @@
         }
 
         document.getElementById('jsonInput').addEventListener('input', updateOutput);
-        
-        document.getElementById('copyButton').addEventListener('click', async function() {
-            const outputText = document.getElementById('jsonOutput').textContent;
-            if (outputText) {
-                try {
-                    await navigator.clipboard.writeText(outputText);
-                    const copyBtn = document.getElementById('copyButton');
-                    copyBtn.innerHTML = '<svg class="copy-icon" viewBox="0 0 24 24"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg>';
-                    setTimeout(() => {
-                        copyBtn.innerHTML = '<svg class="copy-icon" viewBox="0 0 24 24"><path d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"/></svg>';
-                    }, 2000);
-                } catch (err) {
-                    console.error('Failed to copy:', err);
-                }
-            }
-        });
 
-        // Initialize with example JSON
         document.getElementById('jsonInput').value = JSON.stringify({
             "name": "John Doe",
             "age": 30,

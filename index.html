@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSON Formatter</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column; /* Stack header, navigation, and content */
+            height: 100vh;
+            margin: 0;
+            font-family: Consolas, "Courier New", monospace;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+
+        /* Top Header Styles */
+        .top-header {
+            background: #252526;
+            padding: 10px 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+            z-index: 100;
+        }
+
+        .top-header h1 {
+            margin: 0;
+        }
+
+        /* Navigation Styles */
+        .navigation {
+            display: flex;
+            gap: 20px;
+            margin: 16px;
+        }
+
+        .nav-link {
+            color: #9cdcfe;
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .nav-link:hover {
+            color: #4ec9b0;
+            text-decoration: underline;
+        }
+
+        /* Main Content Styles */
+        .content-area {
+            display: flex;
+            flex-grow: 1; /* Allow content to take remaining vertical space */
+        }
+
+        #jsonOutput {
+            width: 100%;
+        }
+
+        textarea, pre {
+            width: 50%;
+            height: 100%;
+            padding: 10px;
+            box-sizing: border-box;
+            border: none;
+            overflow: auto;
+            font-size: 14px;
+        }
+
+        textarea {
+            background: #252526;
+            color: #d4d4d4;
+            outline: none;
+            resize: none;
+        }
+
+        pre {
+            background: #1e1e1e;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            border-left: 2px solid #007acc;
+        }
+
+        .error-highlight {
+            position: relative;
+            background-color: rgba(255, 0, 0, 0.2);
+            border-bottom: 2px solid #ff6b6b;
+            border-radius: 2px;
+        }
+
+        .error-line-number {
+            position: absolute;
+            left: -40px;
+            color: #ff6b6b;
+            font-weight: bold;
+            background: rgba(90, 29, 29, 0.3);
+            padding: 0 5px;
+            border-radius: 3px;
+        }
+
+        .error-details {
+            background-color: rgba(90, 29, 29, 0.5);
+            padding: 8px 12px;
+            margin: 5px 0 10px 20px;
+            border-radius: 4px;
+            border-left: 3px solid #ff6b6b;
+        }
+
+        .error-message {
+            color: #ff9d9d;
+            font-style: normal;
+            padding: 2px 0;
+        }
+
+        .node-copy {
+            display: inline-block;
+            margin-left: 5px;
+            cursor: pointer;
+            color: #569cd6;
+            font-size: 12px;
+            vertical-align: middle;
+        }
+
+        .node-copy:hover {
+            color: #4ec9b0;
+        }
+
+        .collapsible {
+            cursor: pointer;
+        }
+
+        .collapsible::before {
+            content: "−";
+            display: inline-block;
+            width: 15px;
+            color: #569cd6;
+        }
+
+        .collapsible.collapsed::before {
+            content: "+";
+        }
+
+        .highlighted {
+            background-color: #264f78;
+            animation: highlight-fade 1s ease-out;
+        }
+
+        @keyframes highlight-fade {
+            0% { background-color: #264f78; }
+            100% { background-color: transparent; }
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .json-container {
+            position: relative;
+            width: 50%;
+            height: 100%;
+        }
+
+        .json-line {
+            display: block;
+            position: relative;
+        }
+
+        .json-block {
+            margin-left: 15px;
+            border-left: 1px dotted #555;
+            padding-left: 10px;
+        }
+
+        .key {
+            color: #9cdcfe;
+        }
+
+        .string {
+            color: #ce9178;
+        }
+
+        .number {
+            color: #b5cea8;
+        }
+
+        .boolean {
+            color: #569cd6;
+        }
+
+        .null {
+            color: #569cd6;
+        }
+
+        .line-numbers {
+            position: absolute;
+            left: -40px;
+            width: 30px;
+            text-align: right;
+            color: #858585;
+            user-select: none;
+        }
+
+        .syntax-error-marker {
+            position: absolute;
+            background-color: #ff6b6b;
+            width: 2px;
+            height: 16px;
+            transform: translateX(-1px);
+        }
+    </style>
+</head>
+<body>
+    <div class="top-header">
+        <h1 class="header-title">Tools for developers by developers</h1>
+    </div>
+
+    <nav class="navigation">
+    </nav>
+
+    <div class="content-area">
+        <textarea id="jsonInput" placeholder="Enter JSON here..." spellcheck="false"></textarea>
+        <div class="json-container">
+            <pre id="jsonOutput" spellcheck="false"></pre>
+        </div>
+    </div>
+
+    <script>
+        // Function to format JSON with error handling
+        function formatJSON(json) {
+            try {
+                const parsed = JSON.parse(json);
+                return {
+                    formatted: JSON.stringify(parsed, null, 4),
+                    isValid: true,
+                    parsed: parsed
+                };
+            } catch (e) {
+                let errors = [];
+                let message = e.message;
+
+                if (message.includes('\n')) {
+                    errors = message.split('\n')
+                        .map(err => err.trim())
+                        .filter(err => err && !err.includes('at JSON.parse'));
+                } else {
+                    errors = [message];
+                }
+
+                let positions = [];
+                const positionMatches = message.match(/position\s+(\d+)/gi);
+                if (positionMatches) {
+                    positions = positionMatches.map(match => {
+                        const numMatch = match.match(/\d+/);
+                        return numMatch ? parseInt(numMatch[0]) : null;
+                    }).filter(pos => pos !== null);
+                }
+
+                if (positions.length === 0 && e.pos !== undefined) {
+                    positions = [e.pos];
+                }
+
+                return {
+                    formatted: json,
+                    isValid: false,
+                    errors: errors,
+                    positions: positions.length > 0 ? positions : null,
+                    error: e
+                };
+            }
+        }
+
+        // Function to highlight errors in the JSON text
+        function highlightErrors(text, errors, positions, errorObj) {
+            if (!errors || errors.length === 0) return escapeHtml(text);
+
+            const lines = text.split('\n');
+            let output = '';
+            let errorLines = new Map();
+
+            let lineStarts = [0];
+            for (let i = 0; i < lines.length; i++) {
+                lineStarts.push(lineStarts[i] + lines[i].length + 1);
+            }
+
+            if (positions && positions.length > 0) {
+                positions.forEach((pos, idx) => {
+                    let lineIdx = 0;
+                    while (lineIdx < lineStarts.length - 1 && pos >= lineStarts[lineIdx + 1]) {
+                        lineIdx++;
+                    }
+
+                    if (lineIdx < lines.length) {
+                        if (!errorLines.has(lineIdx)) {
+                            errorLines.set(lineIdx, []);
+                        }
+                        errorLines.get(lineIdx).push({
+                            position: pos - lineStarts[lineIdx],
+                            message: errors[idx] || errors[0]
+                        });
+                    }
+                });
+            } else {
+                for (let i = 0; i < lines.length; i++) {
+                    errorLines.set(i, errors.map(msg => ({ position: null, message: msg })));
+                }
+            }
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                const lineErrors = errorLines.get(i);
+
+                output += `<div class="json-line">`;
+                output += `<span class="${lineErrors ? 'error-line-number' : 'line-numbers'}">${i + 1}</span>`;
+
+                if (lineErrors && lineErrors.length > 0) {
+                    if (lineErrors.some(e => e.position !== null)) {
+                        lineErrors.sort((a, b) => (a.position || 0) - (b.position || 0));
+
+                        let lastPos = 0;
+                        for (const error of lineErrors) {
+                            const pos = error.position !== null ? error.position : 0;
+
+                            if (pos > lastPos) {
+                                output += escapeHtml(line.substring(lastPos, pos));
+                            }
+
+                            const errorLength = Math.max(1, Math.min(5, line.length - pos));
+                            output += `<span class="error-highlight" title="${escapeHtml(error.message)}">`;
+                            output += escapeHtml(line.substring(pos, pos + errorLength));
+                            output += `</span>`;
+
+                            lastPos = pos + errorLength;
+                        }
+
+                        if (lastPos < line.length) {
+                            output += escapeHtml(line.substring(lastPos));
+                        }
+                    } else {
+                        output += `<span class="error-highlight" title="${escapeHtml(lineErrors.map(e => e.message).join('; '))}">`;
+                        output += escapeHtml(line);
+                        output += `</span>`;
+                    }
+
+                    output += `<div class="error-details">`;
+                    const uniqueMessages = [...new Set(lineErrors.map(e => e.message))];
+                    uniqueMessages.forEach(msg => {
+                        output += `<div class="error-message">${escapeHtml(msg)}</div>`;
+                    });
+
+                    if (errorObj instanceof SyntaxError) {
+                        output += `<div class="error-message">Syntax error at line ${i + 1}</div>`;
+                    }
+
+                    output += `</div>`;
+                } else {
+                    output += escapeHtml(line);
+                }
+
+                output += `</div>`;
+            }
+
+            return output;
+        }
+
+        // Function to escape HTML characters
+        function escapeHtml(unsafe) {
+            return unsafe
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        // Function to format a single JSON value
+        function formatValue(value, indent = 0) {
+            if (value === null) return `<span class="null">null</span>`;
+            if (typeof value === 'boolean') return `<span class="boolean">${value}</span>`;
+            if (typeof value === 'number') return `<span class="number">${value}</span>`;
+            if (typeof value === 'string') return `<span class="string">"${escapeHtml(value)}"</span>`;
+            if (Array.isArray(value)) return formatArray(value, indent);
+            if (typeof value === 'object') return formatObject(value, indent);
+            return value;
+        }
+
+        // Function to format a JSON array
+        function formatArray(arr, indent) {
+            if (arr.length === 0) return `[]`;
+
+            const simpleArray = arr.every(item =>
+                typeof item !== 'object' || item === null
+            );
+            const arrayString = `[${arr.map(item => formatValue(item, indent)).join(', ')}]`;
+
+            if (simpleArray && arrayString.length < 80 - indent) {
+                return arrayString;
+            }
+
+            let html = `[<span class="collapsible"></span><span class="node-copy" title="Copy this node" data-json="${escapeHtml(JSON.stringify(arr))}">📋</span><div class="json-block">`;
+            for (let i = 0; i < arr.length; i++) {
+                html += `<div class="json-line">${formatValue(arr[i], indent + 1)}${i < arr.length - 1 ? ',' : ''}</div>`;
+            }
+            html += `</div><div class="json-line">]</div>`;
+            return html;
+        }
+
+        // Function to format a JSON object
+        function formatObject(obj, indent = 0) {
+            const keys = Object.keys(obj);
+            if (keys.length === 0) return `{}`;
+
+            const simpleObject = keys.every(key =>
+                typeof obj[key] !== 'object' || obj[key] === null
+            );
+            const pairs = keys.map(key =>
+                `<span class="key">"${key}"</span>: ${formatValue(obj[key], indent)}`
+            );
+            const objectString = `{ ${pairs.join(', ')} }`;
+
+            if (simpleObject && objectString.length < 80 - indent) {
+                return objectString;
+            }
+
+            let html = `{<span class="collapsible"></span><span class="node-copy" title="Copy this node" data-json="${escapeHtml(JSON.stringify(obj))}">📋</span><div class="json-block">`;
+            for (let i = 0; i < keys.length; i++) {
+                const key = keys[i];
+                const value = obj[key];
+                const valueHtml = formatValue(value, indent + 1);
+                html += `<div class="json-line"><span class="key">"${escapeHtml(key)}"</span>: ${valueHtml}${i < keys.length - 1 ? ',' : ''}</div>`;
+            }
+            html += `</div><div class="json-line">}</div>`;
+            return html;
+        }
+
+        // Function to create the collapsible JSON output
+        function createCollapsibleJSON(parsed) {
+            return formatValue(parsed);
+        }
+
+        // Function to update the output based on the input
+        function updateOutput() {
+            const jsonText = document.getElementById('jsonInput').value;
+            const { formatted, isValid, parsed, errors, positions, error } = formatJSON(jsonText);
+
+            if (!isValid) {
+                document.getElementById('jsonOutput').innerHTML = highlightErrors(formatted, errors, positions, error);
+            } else {
+                const html = createCollapsibleJSON(parsed);
+                document.getElementById('jsonOutput').innerHTML = html;
+
+                const collapsibles = document.querySelectorAll('.collapsible');
+                collapsibles.forEach(el => {
+                    el.addEventListener('click', function() {
+                        this.classList.toggle('collapsed');
+                        const block = this.nextElementSibling.nextElementSibling;
+                        if (block && block.classList.contains('json-block')) {
+                            block.classList.toggle('hidden');
+                            const nextLine = block.nextElementSibling;
+                            if (nextLine && nextLine.classList.contains('json-line')) {
+                                nextLine.classList.toggle('hidden');
+                            }
+                        }
+                    });
+                });
+
+                const copyButtons = document.querySelectorAll('.node-copy');
+                copyButtons.forEach(btn => {
+                    btn.addEventListener('click', async function(e) {
+                        e.stopPropagation();
+
+                        const jsonData = this.getAttribute('data-json');
+                        if (!jsonData) return;
+
+                        try {
+                            const parsedData = JSON.parse(jsonData);
+                            let textToCopy;
+
+                            if (typeof parsedData === 'object' && parsedData !== null) {
+                                textToCopy = JSON.stringify(parsedData, null, 2);
+                            } else {
+                                textToCopy = String(parsedData);
+                            }
+
+                            await navigator.clipboard.writeText(textToCopy);
+
+                            const originalText = this.textContent;
+                            this.textContent = '✅';
+                            this.parentNode.classList.add('highlighted');
+
+                            setTimeout(() => {
+                                this.textContent = originalText;
+                                this.parentNode.classList.remove('highlighted');
+                            }, 1000);
+                        } catch (err) {
+                            console.error('Failed to copy:', err);
+                        }
+                    });
+                });
+            }
+        }
+
+        // Event listener for input changes in the textarea
+        document.getElementById('jsonInput').addEventListener('input', updateOutput);
+
+        // Initial JSON value in the textarea
+        document.getElementById('jsonInput').value = JSON.stringify({
+            "name": "John Doe",
+            "age": 30,
+            "isActive": true,
+            "address": {
+                "street": "123 Main St",
+                "city": "New York",
+                "zip": "10001"
+            },
+            "hobbies": ["reading", "swimming", "coding"],
+            "projects": [
+                {
+                    "name": "Website Redesign",
+                    "status": "completed"
+                },
+                {
+                    "name": "Mobile App Development",
+                    "status": "in progress"
+                }
+            ],
+            "specialChars": "This text contains 📋 and other special characters"
+        }, null, 2);
+
+        // Initial call to update the output
+        updateOutput();
+
+        function addNaivgations() {
+            const navigation = document.querySelector('.navigation');
+            const links = [
+                {
+                    link: 'url-encoder.html',
+                    text: 'URL Encoder/Decoder',
+                },
+                {
+                    link: 'base64-encoder.html',
+                    text: 'Base64 Encoder/Decoder',
+                },
+                {
+                    link: 'escape-json.html',
+                    text: 'Un/Escape JSON',
+                },
+                {
+                    link: 'text-diff.html',
+                    text: 'Text Diff',
+                },
+                {
+                    link: 'show-invisible-characters.html',
+                    text: 'Show Invisible Characters',
+                }
+            ]
+    
+            links.forEach(item => {
+                const a = document.createElement('a');
+                a.href = item.link;
+                a.className = 'nav-link';
+                a.textContent = item.text;
+                navigation.appendChild(a);
+            });
+        }
+        addNaivgations();
+    </script>
+</body>
+</html>
